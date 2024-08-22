@@ -1,0 +1,1 @@
+# Proyect RAG with use model LLM llama 3.1 and interface with the use the librery python gradio.
