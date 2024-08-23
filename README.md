@@ -59,22 +59,22 @@ pip install -r requirements.txt
 
 ## 4. Configurar la API Key de LangChain
 
-    El proyecto utiliza la API de LangChain para descargar el prompt. Necesitarás configurar tu API key en el entorno virtual.
+El proyecto utiliza la API de LangChain para descargar el prompt. Necesitarás configurar tu API key en el entorno virtual.
 
-        Configura la API Key como una variable de entorno:
+    Configura la API Key como una variable de entorno:
 
-    En tu sistema operativo, puedes establecer variables de entorno de manera manual.
+En tu sistema operativo, puedes establecer variables de entorno de manera manual.
 
-    En Windows:
+En Windows:
 
-    ```bash
-    setx API_KEY "tu_api_key_aqui"
-    ```
-    En macOS/Linux:
+```bash
+setx API_KEY "tu_api_key_aqui"
+```
+En macOS/Linux:
 
-    ```bash
-    export API_KEY="tu_api_key_aqui"
-    ```
+```bash
+export API_KEY="tu_api_key_aqui"
+```
 
 ## 5. Crear la Carpeta de Documentos
 
