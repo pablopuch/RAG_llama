@@ -22,16 +22,16 @@ Este proyecto implementa un sistema de Recuperación de Información con Generac
 
 Sigue estos pasos para instalar y configurar el proyecto en tu entorno local.
 
-### 1. Clonar el Repositorio
+## 1. Clonar el Repositorio
 
 Clona el repositorio desde GitHub en tu máquina local:
 
 ```bash
 git clone https://github.com/pablopuch/RAG_llama.git
 cd RAG_llama
+```
 
-
-### 2. Crear y Activar un Entorno Virtual
+## 2. Crear y Activar un Entorno Virtual
 
 Es recomendable utilizar un entorno virtual para aislar las dependencias del proyecto:
 
@@ -40,9 +40,79 @@ En Windows:
 ```bash
 python -m venv env
 .\env\Scripts\activate
+```
 
 En macOS/Linux:
 
+```bash
 python3 -m venv env
 source env/bin/activate
+```
 
+## 3. Instalar las Dependencias
+
+Instala todas las dependencias necesarias utilizando pip. El archivo requirements.txt contiene todas las librerías requeridas.
+
+```bash
+pip install -r requirements.txt
+```
+
+## 4. Configurar la API Key de LangChain
+
+    El proyecto utiliza la API de LangChain para descargar el prompt. Necesitarás configurar tu API key en el entorno virtual.
+
+        Configura la API Key como una variable de entorno:
+
+    En tu sistema operativo, puedes establecer variables de entorno de manera manual.
+
+    En Windows:
+
+    ```bash
+    setx API_KEY "tu_api_key_aqui"
+    ```
+    En macOS/Linux:
+
+    ```bash
+    export API_KEY="tu_api_key_aqui"
+    ```
+
+## 5. Crear la Carpeta de Documentos
+
+Crea una carpeta llamada doc en la raíz del proyecto. Coloca todos los archivos PDF con los que quieras trabajar dentro de esta carpeta.
+
+```bash
+mkdir doc
+```
+
+
+## Ejecución
+
+Sigue estos pasos para instalar y configurar el proyecto en tu entorno local.
+
+## 1. Ejecutar el Script de Consola
+
+Para ejecutar el script que interactúa con el modelo desde la consola,Este script te permitirá hacer preguntas sobre los archivos PDF que has colocado en la carpeta doc.
+
+Utiliza el siguiente comando:
+
+```bash
+py  llama_console.py
+```
+## 2. Ejecutar la Interfaz Gradio
+
+Para lanzar la interfaz Gradio y hacer preguntas de manera interactiva. Esto abrirá una interfaz web donde podrás interactuar con el modelo de manera gráfica.
+
+Ejecuta:
+
+```bash
+py  llama_console.py
+```
+## 3. Ejecutar la API con FastAPI
+
+Para levantar la API y exponer un endpoint para interacción desde cualquier frontend. La API estará disponible en http://127.0.0.1:8000. Puedes acceder a la documentación automática generada por FastAPI en http://127.0.0.1:8000/docs. 
+
+Utiliza:
+
+```bash
+fastapi dev main.py
+```
