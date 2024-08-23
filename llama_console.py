@@ -1,4 +1,3 @@
-import gradio as gr
 import os
 from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -7,6 +6,10 @@ from langchain.vectorstores import Chroma
 from langchain import hub
 from langchain.chains import RetrievalQA
 from langchain.llms import Ollama
+
+api_key = os.getenv('API_KEY')
+if not api_key:
+    raise ValueError("API_KEY no está configurada correctamente.")
 
 # Cargar el contenido de todos los archivos PDF en una carpeta
 def load_documents(folder_path):
@@ -29,7 +32,6 @@ def create_vectorstore(splits):
 
 # Descargar el prompt de RAG
 def load_prompt():
-    api_key = "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"
     return hub.pull("rlm/rag-prompt-llama", api_key=api_key)
 
 # Configurar el modelo de lenguaje Llama3.1 con Ollama
@@ -44,12 +46,9 @@ def create_qa_chain(llm, vectorstore, prompt):
         chain_type_kwargs={"prompt": prompt}
     )
 
-# Función que ejecuta la pregunta y obtiene la respuesta
-def chat_with_pdf(history, question):
+# Inicializar el sistema: cargar documentos, crear vectorstore y cadena de QA
+def initialize_system(folder_path):
     # 1. Cargar documentos desde la carpeta especificada
-    
-    folder_path = "doc"  # Cambia esto por la ruta de tu carpeta
-    
     data = load_documents(folder_path)
     
     # 2. Dividir en fragmentos
@@ -67,30 +66,33 @@ def chat_with_pdf(history, question):
     # 6. Configurar la cadena de QA
     qa_chain = create_qa_chain(llm, vectorstore, prompt)
     
-    # 7. Obtener la respuesta a la pregunta
+    return qa_chain
+
+# Función para hacer preguntas al sistema preprocesado
+def chat_with_pdf(qa_chain, history, question):
+    # 7. Obtener la respuesta a la pregunta usando el QA chain
     result = qa_chain({"query": question})
     
     # 8. Actualizar el historial de la conversación
     history.append((question, result["result"]))
     return history, history
 
-# Configurar la interfaz con Gradio
-def main():
-    # Configuración de la interfaz de chat
-    with gr.Blocks() as demo:
-        chatbot = gr.Chatbot()
-        state = gr.State([])  # Mantener el historial de la conversación
-
-        with gr.Row():
-            with gr.Column(scale=8):  # Ajuste de 'scale' a un valor entero
-                txt_input = gr.Textbox(show_label=False, placeholder="Escribe tu pregunta aquí...")
-            with gr.Column(scale=1):
-                submit_btn = gr.Button("Enviar")
-        
-        submit_btn.click(chat_with_pdf, inputs=[state, txt_input], outputs=[chatbot, state])
-        txt_input.submit(chat_with_pdf, inputs=[state, txt_input], outputs=[chatbot, state])
-
-    demo.launch()
-
 if __name__ == "__main__":
-    main()
+    folder_path = "doc"  # Cambia esto por la ruta de tu carpeta
+    history = []
+
+    # Inicializar el sistema una vez
+    qa_chain = initialize_system(folder_path)
+    
+    while True:
+        # Solicitar una pregunta al usuario
+        question = input("Escribe tu pregunta (o 'exit' para salir): ")
+        
+        if question.lower() == "exit":
+            break
+
+        # Obtener la respuesta del modelo usando el sistema ya inicializado
+        history, updated_history = chat_with_pdf(qa_chain, history, question)
+        
+        # Mostrar la respuesta
+        print(f"Respuesta: {updated_history[-1][1]}\n")
