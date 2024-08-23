@@ -1,7 +1,8 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel
-import gradio as gr
+from typing import List, Dict
 import os
+import shutil
 from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -10,14 +11,20 @@ from langchain import hub
 from langchain.chains import RetrievalQA
 from langchain.llms import Ollama
 
-api_key = os.getenv('API_KEY')
-
 app = FastAPI()
 
-# Modelos de datos para la API
-class QuestionRequest(BaseModel):
-    question: str
-    history: list = []
+api_key = os.getenv('API_KEY')
+if not api_key:
+    raise ValueError("API_KEY no está configurada correctamente.")
+
+# Directorio para almacenar archivos PDF cargados
+UPLOAD_DIRECTORY = "uploaded_docs"
+
+# Crear directorio si no existe
+os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
+
+# Global variable to store the QA chain
+qa_chain = None
 
 # Cargar el contenido de todos los archivos PDF en una carpeta
 def load_documents(folder_path):
@@ -54,49 +61,54 @@ def create_qa_chain(llm, vectorstore, prompt):
         chain_type_kwargs={"prompt": prompt}
     )
 
-# Preparar el entorno una vez al iniciar la aplicación
-folder_path = "doc"  # Cambia esto por la ruta de tu carpeta
-data = load_documents(folder_path)
-all_splits = split_text(data)
-vectorstore = create_vectorstore(all_splits)
-prompt = load_prompt()
-llm = configure_llm()
-qa_chain = create_qa_chain(llm, vectorstore, prompt)
+# Inicializar el sistema: cargar documentos, crear vectorstore y cadena de QA
+def initialize_system():
+    # 1. Cargar documentos desde la carpeta especificada
+    data = load_documents(UPLOAD_DIRECTORY)
+    
+    # 2. Dividir en fragmentos
+    all_splits = split_text(data)
+    
+    # 3. Crear el vectorstore
+    vectorstore = create_vectorstore(all_splits)
+    
+    # 4. Cargar el prompt
+    prompt = load_prompt()
+    
+    # 5. Configurar el LLM
+    llm = configure_llm()
+    
+    # 6. Configurar la cadena de QA
+    global qa_chain
+    qa_chain = create_qa_chain(llm, vectorstore, prompt)
 
-# API para manejar la pregunta y devolver la respuesta
-@app.post("/ask")
+class QuestionRequest(BaseModel):
+    question: str
+
+@app.post("/upload-docs/")
+async def upload_docs(files: List[UploadFile]):
+    # Guardar los archivos PDF en el directorio
+    for file in files:
+        file_path = os.path.join(UPLOAD_DIRECTORY, file.filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    
+    # Re-inicializar el sistema para procesar los nuevos documentos
+    initialize_system()
+    
+    return {"message": "Documents uploaded and processed successfully"}
+
+@app.post("/ask-question/")
 async def ask_question(request: QuestionRequest):
-    try:
-        # Obtener la respuesta a la pregunta
-        result = qa_chain({"query": request.question})
-        
-        # Actualizar el historial de la conversación
-        request.history.append((request.question, result["result"]))
-        
-        return {"history": request.history}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if qa_chain is None:
+        raise HTTPException(status_code=400, detail="System not initialized")
+    
+    # Obtener la respuesta a la pregunta usando el QA chain
+    result = qa_chain({"query": request.question})
+    
+    return {"response": result["result"]}
 
-# Endpoint para la interfaz Gradio
-@app.get("/gradio")
-def get_gradio_interface():
-    async def chat_with_pdf(history, question):
-        request = QuestionRequest(question=question, history=history)
-        result = await ask_question(request)
-        return result["history"], result["history"]
-
-    # Crear la interfaz de Gradio
-    with gr.Blocks() as demo:
-        chatbot = gr.Chatbot()
-        state = gr.State([])  # Mantener el historial de la conversación
-
-        with gr.Row():
-            with gr.Column(scale=8):
-                txt_input = gr.Textbox(show_label=False, placeholder="Escribe tu pregunta aquí...")
-            with gr.Column(scale=1):
-                submit_btn = gr.Button("Enviar")
-        
-        submit_btn.click(chat_with_pdf, inputs=[state, txt_input], outputs=[chatbot, state])
-        txt_input.submit(chat_with_pdf, inputs=[state, txt_input], outputs=[chatbot, state])
-
-    return demo.launch(inline=True)
+# Ejecutar el servidor de FastAPI
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
