@@ -1,17 +1,22 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-from typing import List, Dict
+from typing import List
 import os
 import shutil
+import asyncio
 from langchain.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_experimental.text_splitter import SemanticChunker
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Chroma
 from langchain import hub
 from langchain.chains import RetrievalQA
 from langchain.llms import Ollama
 
-app = FastAPI()
+app = FastAPI(
+    title="Mi API de Documentos",
+    description="API para subir y procesar documentos PDF usando LLMs",
+    version="1.0.0",
+)
 
 api_key = os.getenv('API_KEY')
 if not api_key:
@@ -23,31 +28,41 @@ UPLOAD_DIRECTORY = "uploaded_docs"
 # Crear directorio si no existe
 os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
 
-# Global variable to store the QA chain
+# Variable global para almacenar la cadena de QA
 qa_chain = None
 
+# Cargar el modelo de embeddings una vez, fuera de las funciones
+embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')
+
 # Cargar el contenido de todos los archivos PDF en una carpeta
-def load_documents(folder_path):
+async def load_documents_async(folder_path):
+    loop = asyncio.get_event_loop()
     all_documents = []
-    for filename in os.listdir(folder_path):
-        if filename.endswith('.pdf'):
-            loader = PyPDFLoader(os.path.join(folder_path, filename))
-            all_documents.extend(loader.load())
+
+    tasks = [
+        loop.run_in_executor(None, PyPDFLoader(os.path.join(folder_path, filename)).load)
+        for filename in os.listdir(folder_path) if filename.endswith('.pdf')
+    ]
+    
+    loaded_docs = await asyncio.gather(*tasks)
+    
+    for docs in loaded_docs:
+        all_documents.extend(docs)
+    
     return all_documents
 
-# Dividir el texto en fragmentos
+# Dividir el texto en fragmentos semánticos
 def split_text(data):
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=0)
-    return text_splitter.split_documents(data)
+    semantic_chunker = SemanticChunker(embeddings, breakpoint_threshold_type="percentile")
+    return semantic_chunker.create_documents([d.page_content for d in data])
 
 # Crear el vectorstore a partir de los fragmentos de texto
 def create_vectorstore(splits):
-    embeddings = HuggingFaceEmbeddings(model_name='all-MiniLM-L6-v2')
-    return Chroma.from_documents(documents=splits, embedding=embeddings)
+    return Chroma.from_documents(documents=splits, embedding=embeddings, persist_directory='./vectordb2')
 
 # Descargar el prompt de RAG
 def load_prompt():
-    return hub.pull("rlm/rag-prompt-llama", api_key=api_key)
+    return hub.pull("llama-rag", api_key=api_key)
 
 # Configurar el modelo de lenguaje Llama3.1 con Ollama
 def configure_llm():
@@ -62,9 +77,11 @@ def create_qa_chain(llm, vectorstore, prompt):
     )
 
 # Inicializar el sistema: cargar documentos, crear vectorstore y cadena de QA
-def initialize_system():
+async def initialize_system():
+    global qa_chain
+    
     # 1. Cargar documentos desde la carpeta especificada
-    data = load_documents(UPLOAD_DIRECTORY)
+    data = await load_documents_async(UPLOAD_DIRECTORY)
     
     # 2. Dividir en fragmentos
     all_splits = split_text(data)
@@ -79,14 +96,13 @@ def initialize_system():
     llm = configure_llm()
     
     # 6. Configurar la cadena de QA
-    global qa_chain
     qa_chain = create_qa_chain(llm, vectorstore, prompt)
 
 class QuestionRequest(BaseModel):
     question: str
 
-@app.post("/upload-docs/")
-async def upload_docs(files: List[UploadFile]):
+@app.post("/upload-docs/", summary="Subir documentos", description="Sube archivos PDF y reinicia el sistema.")
+async def upload_docs(files: List[UploadFile], background_tasks: BackgroundTasks):
     # Guardar los archivos PDF en el directorio
     for file in files:
         file_path = os.path.join(UPLOAD_DIRECTORY, file.filename)
@@ -94,12 +110,14 @@ async def upload_docs(files: List[UploadFile]):
             shutil.copyfileobj(file.file, buffer)
     
     # Re-inicializar el sistema para procesar los nuevos documentos
-    initialize_system()
+    background_tasks.add_task(initialize_system)
     
-    return {"message": "Documents uploaded and processed successfully"}
+    return {"message": "Documents uploaded. Processing in background."}
 
-@app.post("/ask-question/")
+@app.post("/ask-question/", summary="Hacer una pregunta", description="Haz una pregunta sobre los documentos procesados.")
 async def ask_question(request: QuestionRequest):
+    if not request.question.strip():
+        raise HTTPException(status_code=422, detail="La pregunta no puede estar vacía.")
     if qa_chain is None:
         raise HTTPException(status_code=400, detail="System not initialized")
     
