@@ -22,6 +22,6 @@ __pycache__/
 *.tmp
 *.temp
 
+vectordb2/
 doc/
 uploaded_docs/
-vectordb2/
